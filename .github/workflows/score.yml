@@ -1,0 +1,45 @@
+# Consumer workflow for the OWASP-CTF/juice-shop CTF fork.
+#
+# Replaces the hand-rolled .github/workflows/ctf-score.yml (see pull_request_target.yml,
+# kept only for reference): OWASP-CTF/score-action does everything: checks out the PR head,
+# mints the OIDC id-token, BUILDS the PR's patched app from its Dockerfile, boots it with
+# Juice Shop's Safety Mode forced OFF, scores it against the embedded rubric, and records the
+# result. The PR's untrusted code only ever runs inside containers on an --internal network,
+# never on the runner host. Do NOT add a step that runs PR-controlled code directly here.
+#
+# Note there is no `app-image` input: unlike the stock-image targets, a Juice Shop contestant
+# patches TypeScript in this repo, so the app under test MUST be the PR's own build (the
+# action's default `ctf-app:pr`). Setting app-image would score stock upstream and ignore the
+# patch. The checked-out source is also handed to the scorer read-only for the few challenges
+# that are verified by static source analysis rather than an HTTP probe.
+#
+# Copy this into the fork as: .github/workflows/score.yml, and DELETE ctf-score.yml.
+name: score
+
+on:
+  pull_request_target:
+    branches: [dc34-ctf]
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: score-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  score:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read # the action checks out the PR head to docker-build
+      packages: read # the action pulls the org-internal scorer image
+      id-token: write # the action mints the OIDC id-token POST /score authorizes
+      pull-requests: write # the result comment
+    steps:
+      - name: Score + record
+        uses: OWASP-CTF/score-action@main
+        with:
+          target: juice-shop
+          # Juice Shop listens on :3000 inside the sandbox network.
+          app-url: http://app:3000
